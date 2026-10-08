@@ -1,0 +1,29 @@
+# secrets and local config (keep only the example)
+.env
+.env.*
+!.env.example
+
+# dependencies and build output
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+
+# local databases and user uploads (contain accounts and citizen photos)
+*.db
+*.sqlite
+*.sqlite3
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# training artefacts (large / regenerated)
+training/data/
+training/out/
+
+# editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
