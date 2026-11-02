@@ -59,8 +59,8 @@ try:
         creq = [json.loads(l) for l in open(LOG)][-1]
         ctext = json.dumps(creq["body"]); check("chat carries incident evidence + prior investigation", "0.65676165" in ctext and "STUB" in ctext and "Why was this flagged?" in ctext)
         check("fire scenario", c.post("/api/incidents/TP-003/investigate", json={"scenario": "fire"}).status_code == 200)
-        rep = c.post("/api/incidents/TP-003/report").json(); check("report 13 sections", len(rep["body"]["sections"]) == 13)
-        check("report markdown", "## 13." in c.get(f"/api/reports/{rep['id']}/markdown").text)
+        rep = c.post("/api/incidents/TP-003/report").json(); check("report has six plain-language sections and an appendix", [x["key"] for x in rep["body"]["summary"]] == ["observed", "why", "suggests", "uncertain", "impact", "next"] and len(rep["body"]["appendix"]) >= 5)
+        check("report markdown", "## Recommended next steps" in c.get(f"/api/reports/{rep['id']}/markdown").text and "## Technical appendix" in c.get(f"/api/reports/{rep['id']}/markdown").text)
         a = c.get("/api/alerts").json(); check("alerts only MODERATE+", a["count"] == 3 and a["high_or_critical"] == 0, a["alerts"][0]["headline"])
         check("status update", c.post("/api/incidents/TP-003/status", json={"status": "REVIEWED"}).status_code == 200)
         os.environ["GEMINI_API_KEY"] = ""

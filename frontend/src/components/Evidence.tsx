@@ -14,7 +14,7 @@ export default function EvidencePanel({ inc, ev }: { inc: Incident; ev: Evidence
       <div className="rounded-xl border border-white/[0.07] bg-ink-900/60 p-4">
         <div className="flex items-center justify-between"><span className="label">Random Forest probability</span>
           <Chip tone={ml.disturbance_detected ? "bad" : "good"}>{ml.disturbance_detected ? "Detected" : "Not detected"}</Chip></div>
-        <div className="mt-2 font-display text-4xl">{ml.probability.toFixed(3)}</div>
+        <div className="mt-2 text-4xl">{ml.probability.toFixed(3)}</div>
         <ProbGauge p={ml.probability} threshold={ml.threshold} />
         <p className="mt-3 text-[11.5px] leading-snug text-amber-200/80">CSV column <span className="font-mono">Disturbance_Probability</span> = {inc.csv_disturbance_probability.toFixed(3)} (unverified, does not match the model; not used).</p>
       </div>
@@ -42,7 +42,7 @@ export default function EvidencePanel({ inc, ev }: { inc: Incident; ev: Evidence
       </div>
 
       <div className="rounded-xl border border-white/[0.07] bg-ink-900/60 p-4 text-[12.5px] leading-snug text-stone-300">
-        <div className="label mb-2">Community impact</div>{ev.community.status}
+        {ev.community.status}
       </div>
     </div>
   );

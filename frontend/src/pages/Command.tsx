@@ -1,76 +1,81 @@
-import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import MapView, { Pt } from "../components/MapView";
-import { ErrorBox, LEVEL_COLOR, Panel, RiskBadge, Spinner, Stat, useLoad } from "../components/ui";
+import { ErrorBox, LEVEL_COLOR, ModeTag, Panel, RiskBadge, Spinner, useLoad } from "../components/ui";
+import { CATEGORY_LABEL, FieldSummary } from "../fieldTypes";
 import type { Dashboard, Incident } from "../types";
+import type { CAlert } from "./Community";
 
-const ramp = (t: number) => {
-  const a = [31, 58, 95], b = [52, 211, 153], c = [250, 204, 21];
-  const [p, q, u] = (t < 0.5 ? [a, b, t * 2] : [b, c, (t - 0.5) * 2]) as [number[], number[], number];
-  return `rgb(${p.map((x, i) => Math.round(x + (q[i] - x) * u)).join(",")})`;
-};
+function ago(t: number) {
+  const m = Math.max(1, Math.round((Date.now() / 1000 - t) / 60));
+  return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+}
 
 export default function Command() {
   const nav = useNavigate();
   const d = useLoad(() => api.get<Dashboard>("/api/dashboard"));
   const inc = useLoad(() => api.get<{ incidents: Incident[] }>("/api/incidents"));
-  const [by, setBy] = useState<"risk" | "ml">("risk");
+  const fr = useLoad(() => api.get<{ reports: FieldSummary[] }>("/api/field-reports"));
+  const al = useLoad(() => api.get<{ alerts: CAlert[] }>("/api/community-alerts"));
   if (d.error) return <ErrorBox error={d.error} onRetry={d.reload} />;
-  if (!d.data || !inc.data) return <Spinner text="Loading monitored forest…" />;
-  const D = d.data;
-  const probs = inc.data.incidents.map((i) => i.ml.probability);
-  const lo = Math.min(...probs), hi = Math.max(...probs);
-  const pts: Pt[] = inc.data.incidents.map((i) => ({
-    id: i.id, lat: i.lat, lon: i.lon, radius: 8,
-    color: by === "risk" ? LEVEL_COLOR[i.risk.level] : ramp(hi === lo ? 0.5 : (i.ml.probability - lo) / (hi - lo)),
-    tip: `${i.id} · ${i.risk.level} · RF p=${i.ml.probability.toFixed(3)}`,
-  }));
+  if (!d.data || !inc.data || !fr.data || !al.data) return <Spinner text="Loading…" />;
+
+  const open = fr.data.reports.filter((r) => ["NEW", "UNDER REVIEW", "NEEDS FIELD VISIT"].includes(r.status));
+  const waiting = open.filter((r) => r.status === "NEW");
+  const drafts = al.data.alerts.filter((a) => a.status === "DRAFT");
+  const elevated = inc.data.incidents.filter((i) => i.risk.level !== "LOW");
+  const pts: Pt[] = inc.data.incidents.map((i) => ({ id: i.id, lat: i.lat, lon: i.lon, radius: 7, color: LEVEL_COLOR[i.risk.level], tip: `${i.id} · ${i.risk.level.toLowerCase()} risk` }));
+
+  const todo = [
+    { n: waiting.length, text: waiting.length === 1 ? "citizen report is waiting for review" : "citizen reports are waiting for review", to: "/field-reports" },
+    { n: drafts.length, text: drafts.length === 1 ? "public alert draft needs your decision" : "public alert drafts need your decision", to: "/community" },
+    { n: elevated.length, text: elevated.length === 1 ? "incident from the evidence file has moderate risk or higher" : "incidents from the evidence file have moderate risk or higher", to: "/incidents" },
+  ];
 
   return (
     <div className="space-y-6 fade-in">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="label mb-2">Dashboard · {D.study_area}</div>
-          <h1 className="h-display max-w-4xl text-4xl leading-tight md:text-5xl">What is happening in the monitored forest?</h1>
-        </div>
-        <Link to="/replay" className="btn-primary">Run historical event →</Link>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-stone-50">Today</h1>
+        <p className="mt-1 text-sm text-stone-400">Mudumalai Tiger Reserve</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Stat label="Observations analysed" value={D.observations} />
-        <Stat label="ML-detected disturbances" value={D.ml_detected} tone={D.ml_detected ? "#ef4444" : "#6fcf97"} sub={`Random Forest probability ≥ ${D.ml_threshold}`} />
-        <Stat label="Incidents" value={D.incidents} sub={`${D.by_risk.MODERATE} moderate · ${D.by_risk.LOW} low`} />
-      </div>
+      <Panel title="To do">
+        <ul className="divide-y divide-white/10">
+          {todo.map((t) => (
+            <li key={t.to}>
+              <Link to={t.to} className="flex items-center gap-4 py-3 hover:bg-white/[0.05]">
+                <span className={`w-10 text-right text-2xl font-semibold ${t.n ? "text-stone-50" : "text-stone-600"}`}>{t.n}</span>
+                <span className={t.n ? "text-stone-100" : "text-stone-400"}>{t.text}</span>
+                <span className="ml-auto text-sm text-moss-400">Open</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </Panel>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
-        <Panel kicker="Satellite view" title="Incident map"
-          right={
-            <div className="flex items-center gap-3">
-              <div className="flex rounded-lg border border-white/10 p-0.5 text-xs">
-                {([["risk", "Risk"], ["ml", "ML probability"]] as const).map(([k, l]) => (
-                  <button key={k} onClick={() => setBy(k)} className={`rounded-md px-2.5 py-1 ${by === k ? "bg-moss-500/15 text-moss-400" : "text-stone-400"}`}>{l}</button>
-                ))}
-              </div>
-              {by === "risk"
-                ? <div className="hidden gap-2 sm:flex">{(["LOW", "MODERATE", "HIGH", "CRITICAL"] as const).map((l) => <span key={l} className="flex items-center gap-1.5 text-[11px] text-stone-400"><i className="h-2.5 w-2.5 rounded-full" style={{ background: LEVEL_COLOR[l] }} />{l}</span>)}</div>
-                : <div className="hidden items-center gap-2 font-mono text-[11px] text-stone-400 sm:flex">{lo.toFixed(2)}<span className="h-2 w-24 rounded" style={{ background: `linear-gradient(90deg,${ramp(0)},${ramp(0.5)},${ramp(1)})` }} />{hi.toFixed(2)}</div>}
-            </div>
-          }>
-          <MapView pts={pts} onPick={(id) => nav(`/incidents/${id}`)} height={560} />
+      <div className="grid gap-6 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <Panel title="Citizen reports to look at" right={<Link to="/field-reports" className="text-sm text-moss-400">All reports</Link>}>
+          {open.length === 0 ? <p className="text-sm text-stone-400">No open reports. New reports from citizens appear here.</p> : (
+            <ul className="divide-y divide-white/10">
+              {open.slice(0, 6).map((r) => (
+                <li key={r.id}>
+                  <Link to={`/field-reports/${r.id}`} className="flex items-center gap-3 py-2.5 hover:bg-white/[0.05]">
+                    <RiskBadge level={r.priority_level} size="sm" />
+                    <div className="min-w-0 flex-1"><div className="truncate text-stone-100">{CATEGORY_LABEL[r.category]}</div><div className="truncate text-xs text-stone-400">{r.note_preview || "No note"}</div></div>
+                    <span className="flex-none text-xs text-stone-400">{ago(r.created)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </Panel>
 
-        <Panel kicker="Ranked by risk score, then RF probability" title="Priority incidents">
-          <div className="space-y-2.5">
-            {D.priority.map((i) => (
-              <Link key={i.id} to={`/incidents/${i.id}`} className="block rounded-xl border border-white/[0.07] bg-ink-900/60 p-3.5 transition hover:border-moss-500/40">
-                <div className="flex items-center justify-between"><span className="font-mono text-sm text-stone-50">{i.id}</span><RiskBadge level={i.risk.level} size="sm" /></div>
-                <div className="mt-1 text-sm text-stone-300">{i.title}</div>
-                <div className="mt-1.5 font-mono text-[11px] text-stone-500">RF p={i.ml.probability.toFixed(3)} · {i.cluster}</div>
-              </Link>
-            ))}
+        <Panel title="Where the evidence file shows concern" right={<ModeTag mode="HISTORICAL" />}>
+          <MapView pts={pts} onPick={(id) => nav(`/incidents/${id}`)} height={300} jump={false} />
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-400">
+            {(["LOW", "MODERATE", "HIGH", "CRITICAL"] as const).map((l) => <span key={l} className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full" style={{ background: LEVEL_COLOR[l] }} />{l[0] + l.slice(1).toLowerCase()}</span>)}
           </div>
-          <Link to="/incidents" className="btn-ghost mt-4 w-full">All incidents →</Link>
+          <p className="mt-3 text-xs text-stone-400">These {d.data.observations} points come from a past data file with no dates. They show where past evidence looks disturbed. They are not a live fire feed.</p>
         </Panel>
       </div>
     </div>

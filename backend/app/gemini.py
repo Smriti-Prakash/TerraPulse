@@ -30,7 +30,7 @@ def generate(system: str, contents: list[dict[str, Any]], json_mode: bool, tempe
     body: dict[str, Any] = {
         "system_instruction": {"parts": [{"text": system}]},
         "contents": contents,
-        "generationConfig": {"temperature": temperature, "maxOutputTokens": 8192},
+        "generationConfig": {"temperature": temperature, "maxOutputTokens": 16384},
     }
     if json_mode:
         body["generationConfig"]["responseMimeType"] = "application/json"
@@ -40,7 +40,7 @@ def generate(system: str, contents: list[dict[str, Any]], json_mode: bool, tempe
     for model in models:
         for attempt in range(3):
             try:
-                r = httpx.post(_endpoint(model), json=body, headers={"x-goog-api-key": config.GEMINI_API_KEY}, timeout=90.0)
+                r = httpx.post(_endpoint(model), json=body, headers={"x-goog-api-key": config.GEMINI_API_KEY}, timeout=150.0)
             except httpx.HTTPError as e:
                 last = f"Could not reach Gemini API: {e}"
                 r = None

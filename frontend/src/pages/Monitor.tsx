@@ -27,15 +27,15 @@ export default function Monitor() {
   const unit = layer in r.data.feature_meta ? r.data.feature_meta[layer].unit : "";
   return (
     <div className="space-y-5 fade-in">
-      <div><div className="label mb-2">Forest Monitor</div><h1 className="h-display text-4xl">Environmental evidence layers</h1>
+      <div><h1 className="text-2xl font-semibold tracking-tight">Environmental evidence layers</h1>
         <p className="mt-2 max-w-3xl text-stone-400">Points are coloured by the Random Forest disturbance probability. Click a point to inspect it, and a second to compare.</p></div>
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="grid gap-6 grid-cols-[minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel title={layer} right={layer !== "Risk level" && layer !== "Forest" ? <div className="flex items-center gap-2 font-mono text-[11px] text-stone-400">{range[0].toPrecision(4)}<span className="h-2 w-36 rounded" style={{ background: `linear-gradient(90deg,${ramp(0)},${ramp(0.5)},${ramp(1)})` }} />{range[1].toPrecision(4)} {unit}</div> : undefined}>
           <MapView pts={pts} onPick={(id) => { const n = Number(id); if (sel !== null && n !== sel) setCmp(n); else setSel(n); }} height={540} />
           <p className="mt-2 text-xs text-stone-500">Click one point to inspect, a second to compare. Layer values are the supplied CSV values; colour scale spans this sample only.</p>
         </Panel>
         <div className="space-y-4">
-          <Panel kicker="Observation" title={S ? `CSV row ${S.csv_row_number} · ${S.system_index}` : "Select a point"} right={S?.incident_id ? <Link to={`/incidents/${S.incident_id}`} className="btn-ghost !py-1.5 text-xs">Open {S.incident_id}</Link> : undefined}>
+          <Panel title={S ? `CSV row ${S.csv_row_number} · ${S.system_index}` : "Select a point"} right={S?.incident_id ? <Link to={`/incidents/${S.incident_id}`} className="btn-ghost !py-1.5 text-xs">Open {S.incident_id}</Link> : undefined}>
             {!S ? <p className="text-sm text-stone-400">Click any point on the map to see its actual feature values and model output.</p> : (
               <table className="w-full text-sm"><tbody>
                 {Object.entries(S.features).map(([k, v]) => <tr key={k} className="border-t border-white/[0.06]"><td className="py-1.5 text-stone-400">{r.data!.feature_meta[k].label}</td><td className="text-right font-mono">{k === "Rainfall" ? v.toPrecision(4) : Number(v.toPrecision(7))}</td>{C && <td className="text-right font-mono text-earth-300">{k === "Rainfall" ? (C.features as any)[k].toPrecision(4) : (C.features as any)[k]}</td>}</tr>)}
@@ -46,7 +46,7 @@ export default function Monitor() {
             )}
             {S && C && <button className="btn-ghost mt-3 !py-1.5 text-xs" onClick={() => setCmp(null)}>Clear comparison (row {C.csv_row_number})</button>}
           </Panel>
-          <Panel kicker="Random Forest" title="Feature importance (from the .joblib)">
+          <Panel title="Feature importance (from the .joblib)">
             {d.data && Object.entries(d.data.model.feature_importances).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
               <div key={k} className="mb-2"><div className="flex justify-between text-xs"><span className="text-stone-300">{k}</span><span className="font-mono text-stone-400">{v.toFixed(3)}</span></div><div className="mt-1 h-1.5 rounded bg-white/10"><div className="h-full rounded bg-moss-500" style={{ width: `${v * 100 / 0.25 > 100 ? 100 : v * 100 / 0.25}%` }} /></div></div>
             ))}
@@ -54,10 +54,10 @@ export default function Monitor() {
           </Panel>
         </div>
       </div>
-      <Panel kicker="All observations" title="Compare available observations" right={<Chip tone="neutral">{obs.length} rows</Chip>}>
+      <Panel title="Compare available observations" right={<Chip tone="neutral">{obs.length} rows</Chip>}>
         <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm">
-          <thead><tr className="text-left font-mono text-[10.5px] uppercase tracking-wider text-stone-500">{["Row", "Incident", "NDVI", "NBR", "VV", "VH", "Fire br.", "Temp K", "Rain", "Forest", "RF p", "Risk"].map((h) => <th key={h} className="py-2 pr-3">{h}</th>)}</tr></thead>
-          <tbody>{obs.map((o) => <tr key={o.row} onClick={() => setSel(o.row)} className={`cursor-pointer border-t border-white/[0.06] hover:bg-white/[0.03] ${sel === o.row ? "bg-moss-500/10" : ""}`}>
+          <thead><tr className="text-left font-mono text-[10.5px] text-stone-500">{["Row", "Incident", "NDVI", "NBR", "VV", "VH", "Fire br.", "Temp K", "Rain", "Forest", "RF p", "Risk"].map((h) => <th key={h} className="py-2 pr-3">{h}</th>)}</tr></thead>
+          <tbody>{obs.map((o) => <tr key={o.row} onClick={() => setSel(o.row)} className={`cursor-pointer border-t border-white/[0.06] hover:bg-white/[0.05] ${sel === o.row ? "bg-moss-500/10" : ""}`}>
             <td className="py-1.5 pr-3 font-mono">{o.csv_row_number}</td><td className="pr-3 font-mono">{o.incident_id ?? "—"}</td>
             {["NDVI", "NBR", "VV", "VH", "Fire_Brightness", "Temperature"].map((k) => <td key={k} className="pr-3 font-mono">{(o.features as any)[k].toFixed(k === "Fire_Brightness" || k === "Temperature" ? 2 : 3)}</td>)}
             <td className="pr-3 font-mono">{o.features.Rainfall.toFixed(5)}</td><td className="pr-3 font-mono">{o.features.Forest}</td><td className="pr-3 font-mono">{o.ml.probability.toFixed(3)}</td><td style={{ color: LEVEL_COLOR[o.risk_level] }} className="font-mono text-xs">{o.risk_level}</td></tr>)}</tbody></table></div>

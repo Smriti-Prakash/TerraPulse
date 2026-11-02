@@ -4,15 +4,15 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: { 950: "#070c09", 900: "#0b110e", 800: "#101a15", 700: "#16241d", 600: "#1f3329" },
+        ink: { 950: "#0a100d", 900: "#0e1612", 800: "#131d18", 700: "#1a2720", 600: "#243629" },
         moss: { 400: "#6fcf97", 500: "#34d399", 600: "#10b981" },
         earth: { 300: "#d9c7a3", 400: "#c2a878", 500: "#9c8559" },
-        warn: "#f5b041", crit: "#ef4444",
+        warn: "#f5b041", crit: "#f87171",
       },
       fontFamily: {
-        display: ["Fraunces", "Georgia", "serif"],
-        sans: ["IBM Plex Sans", "system-ui", "sans-serif"],
-        mono: ["IBM Plex Mono", "ui-monospace", "monospace"],
+        display: ["Noto Sans", "Noto Sans Tamil", "system-ui", "sans-serif"],
+        sans: ["Noto Sans", "Noto Sans Tamil", "system-ui", "sans-serif"],
+        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
     },
   },

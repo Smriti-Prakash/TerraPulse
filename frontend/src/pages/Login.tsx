@@ -37,7 +37,7 @@ export default function Login() {
       <div className="fade-in w-full max-w-[400px]">
         <div className="mb-8 flex flex-col items-center text-center">
           <svg width="54" height="54" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="#34d399" strokeOpacity=".5" /><path d="M16 6c5 4 7 8 0 20C9 14 11 10 16 6Z" fill="#34d399" /><path d="M3 18h6l3-5 4 9 3-6 2 2h8" stroke="#ecfdf5" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          <h1 className="font-display mt-4 text-3xl tracking-wide text-stone-50">TERRAPULSE</h1>
+          <h1 className="mt-4 text-3xl tracking-wide text-stone-50">TERRAPULSE</h1>
           <div className="label mt-1.5">Forest intelligence · Mudumalai</div>
         </div>
 
@@ -59,7 +59,7 @@ export default function Login() {
             <input id="tp-pass" type={show ? "text" : "password"} autoComplete={reg ? "new-password" : "current-password"} value={password} onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-xl border border-white/10 bg-ink-900/80 py-2.5 pl-3.5 pr-16 text-sm text-stone-100 outline-none transition focus:border-moss-500/60 focus:ring-2 focus:ring-moss-500/20" />
             <button type="button" onClick={() => setShow((s) => !s)} aria-label={show ? "Hide password" : "Show password"}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-stone-400 hover:text-stone-100">
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 font-mono text-[11px] text-stone-400 hover:text-stone-100">
               {show ? "Hide" : "Show"}
             </button>
           </div>
@@ -68,12 +68,12 @@ export default function Login() {
           {error && <div role="alert" className="mt-4 rounded-xl border border-crit/40 bg-crit/10 px-3.5 py-2.5 text-sm text-red-200">{error}</div>}
 
           <button type="submit" disabled={busy || !ready} className="btn-primary mt-6 w-full">
-            {busy ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-ink-950 border-t-transparent" />{reg ? "Creating account…" : "Signing in…"}</> : reg ? "Create account" : "Sign in"}
+            {busy ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />{reg ? "Creating account…" : "Signing in…"}</> : reg ? "Create account" : "Sign in"}
           </button>
 
           <div className="mt-5 text-center text-sm text-stone-400">
             {reg ? "Already have an account?" : "New here?"}{" "}
-            <button type="button" onClick={flip} className="text-moss-400 underline decoration-moss-400/30 underline-offset-4 hover:text-moss-500">{reg ? "Sign in" : "Create a citizen account"}</button>
+            <button type="button" onClick={flip} className="text-moss-400 underline decoration-moss-400/30 underline-offset-4 hover:text-moss-400">{reg ? "Sign in" : "Create a citizen account"}</button>
           </div>
         </form>
       </div>

@@ -20,12 +20,12 @@ export default function Incidents() {
   const list = data.incidents.filter(fn);
   return (
     <div className="space-y-5 fade-in">
-      <div><div className="label mb-2">Incidents</div><h1 className="h-display text-4xl">Investigation cases</h1>
-        <p className="mt-2 max-w-3xl text-stone-400">One case per record that triggers a rule. Click a case to investigate it.</p></div>
+      <div><h1 className="text-2xl font-semibold tracking-tight">Investigation cases</h1>
+        <p className="mt-2 max-w-3xl text-stone-400">Records from the past data file that triggered a risk rule. Open one to investigate it.</p></div>
       <div className="flex flex-wrap gap-2">
         {FILTERS.map(([n, fx]) => {
           const c = data.incidents.filter(fx).length;
-          return <button key={n} onClick={() => setF(n)} className={`rounded-full border px-3.5 py-1.5 text-sm transition ${f === n ? "border-moss-500 bg-moss-500/15 text-moss-400" : "border-white/10 text-stone-400 hover:text-stone-100"}`}>{n} <span className="ml-1 font-mono text-[11px] opacity-70">{c}</span></button>;
+          return <button key={n} onClick={() => setF(n)} className={`rounded-lg border px-3 py-1.5 text-sm transition ${f === n ? "border-moss-500 bg-moss-500 text-ink-950" : "border-white/15 bg-ink-700 text-stone-300 hover:bg-white/[0.06]"}`}>{n} <span className="ml-1 font-mono text-[11px] opacity-70">{c}</span></button>;
         })}
       </div>
       {list.length === 0 && <div className="glass p-8 text-stone-400">No incidents match this filter in the current dataset.</div>}
@@ -36,10 +36,10 @@ export default function Incidents() {
             <div className="mt-1.5 text-[15px] text-stone-200">{i.title}</div>
             <div className="mt-1 text-xs text-stone-500">{i.location} · {i.cluster}</div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-              {[["RF prob.", i.ml.probability.toFixed(3)], ["Fire br. K", i.features.Fire_Brightness.toString()], ["NDVI", i.features.NDVI.toFixed(3)]].map(([l, v]) => <div key={l} className="rounded-lg bg-ink-900/70 py-2"><div className="label !text-[9px]">{l}</div><div className="font-mono text-sm">{v}</div></div>)}
+              {[["RF prob.", i.ml.probability.toFixed(3)], ["Fire br. K", i.features.Fire_Brightness.toString()], ["NDVI", i.features.NDVI.toFixed(3)]].map(([l, v]) => <div key={l} className="rounded-lg bg-ink-900/70 py-2"><div className="text-[11px] text-stone-400">{l}</div><div className="font-mono text-sm">{v}</div></div>)}
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              <Chip tone={i.status === "NEW" ? "neutral" : i.status === "REVIEWED" ? "good" : "warn"}>{i.status}</Chip>
+              <Chip tone={i.status === "NEW" ? "neutral" : i.status === "REVIEWED" ? "good" : "warn"}>{i.status[0] + i.status.slice(1).toLowerCase()}</Chip>
               {i.tags.map((t) => <Chip key={t} tone="earth">{t}</Chip>)}{i.ai_investigated && <Chip tone="good">AI report</Chip>}
             </div>
           </Link>

@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse
 from PIL import ExifTags, Image, ImageOps
 from pydantic import BaseModel, Field
 
-from . import config, db, prompts
+from . import config, db, layers, prompts
 from .core import COMMUNITY_STATEMENT, UNAVAILABLE, engine
 from .gemini import GeminiError, generate, parse_json
 
@@ -123,7 +123,7 @@ def _load_fire(path: Path) -> pd.DataFrame:
     return df.dropna(subset=["latitude", "longitude", "_dt"])
 
 
-def fire_check(lat: float, lon: float, at: float) -> dict[str, Any]:
+def _fire_check_raw(lat: float, lon: float, at: float) -> dict[str, Any]:
     try:
         df = _cached(FIRE_CSV, _load_fire)
     except Exception as e:  # noqa: BLE001
@@ -145,6 +145,26 @@ def fire_check(lat: float, lon: float, at: float) -> dict[str, Any]:
         out["nearest"] = {"distance_km": round(float(r["_km"]), 2), "detected_utc": f"{r['_dt']:%Y-%m-%d %H:%M}", "hours_before_report": round(hours, 1),
                           "confidence": str(r["confidence"]) if "confidence" in d.columns else UNAVAILABLE}
         out["recent_within_5km_72h"] = bool(((d["_km"] <= 5) & ((when - d["_dt"]) <= pd.Timedelta(hours=72))).any())
+    return out
+
+
+INCONCLUSIVE_TEXT = ("No satellite fire detection was found near this place and time. This is INCONCLUSIVE, not 'no fire': satellites can miss small, "
+                     "short-lived or cloud-covered fires, and detections appear hours after a satellite pass. Field verification is needed.")
+
+
+def fire_check(lat: float, lon: float, at: float) -> dict[str, Any]:
+    """FIRMS spatial/time cross-check with an explicit verdict. A missing detection is never reported as 'no fire'."""
+    out = _fire_check_raw(lat, lon, at)
+    if out["status"] == "ok":
+        if out["recent_within_5km_72h"]:
+            out["verdict"] = "DETECTION_NEARBY"
+            out["interpretation"] = "A satellite fire detection was recorded within 5 km in the 72 hours before this report. This supports the report; it does not confirm a fire."
+        else:
+            out["verdict"] = "INCONCLUSIVE"
+            out["interpretation"] = INCONCLUSIVE_TEXT
+    else:
+        out["verdict"] = "CANNOT_CHECK"
+        out["interpretation"] = "TerraPulse cannot cross-check this report against satellite fire detections (" + out.get("message", "data not available") + "). Field verification is needed."
     return out
 
 
@@ -237,7 +257,8 @@ def build_checks(lat: float, lon: float, accuracy_m: float | None, exif: dict[st
         "elevated_observation_within_3km": elevated,
         "fire_detections": fire_check(lat, lon, at),
         "reserve_boundary": boundary_check(lat, lon),
-        "tree_cover_loss": {"status": "unavailable", "message": UNAVAILABLE},
+        "tree_cover_loss": layers.hansen_check(lat, lon),
+        "community_impact": layers.nearby(lat, lon, 5.0),
         "weather": {"status": "unavailable", "message": UNAVAILABLE},
         "base_imagery": {"status": "unavailable", "message": "Base satellite image check is not included in this version"},
         "other_reports_nearby": {"distinct_other_reporters": len(others), "radius_m": 500, "window_hours": 24},
@@ -256,7 +277,7 @@ def priority(category: str, checks: dict[str, Any]) -> dict[str, Any]:
         score += 2
         reasons.append("+2 Satellite fire detection within 5 km in the 72 hours before the report")
     else:
-        not_triggered.append("Fire detection within 5 km / 72 h: " + (fd.get("message") or "none found"))
+        not_triggered.append("Fire detection within 5 km / 72 h: " + (fd.get("message") or "no detection found (inconclusive, not 'no fire')"))
     el = checks["elevated_observation_within_3km"]
     if el:
         score += 1
@@ -287,9 +308,45 @@ def _save_ai(rid: int, status: str, result: dict | None = None, error: str | Non
                   (status, json.dumps(result) if result is not None else None, error, model, time.time(), rid))
 
 
+OUTCOME = {
+    "Received": ("We have received your report. A forest officer will review it.", "உங்கள் அறிக்கை எங்களுக்குக் கிடைத்தது. வனத்துறை அதிகாரி அதை ஆய்வு செய்வார்."),
+    "Under review": ("A forest officer is reviewing your report. This may include a field check.", "வனத்துறை அதிகாரி உங்கள் அறிக்கையை ஆய்வு செய்து வருகிறார். இதில் களச் சோதனையும் அடங்கலாம்."),
+    "Action taken": ("A forest officer reviewed your report and acted on it. Thank you for helping protect the forest.", "வனத்துறை அதிகாரி உங்கள் அறிக்கையை ஆய்வு செய்து நடவடிக்கை எடுத்துள்ளார். காட்டைப் பாதுகாக்க உதவியதற்கு நன்றி."),
+    "Closed": ("A forest officer reviewed your report and closed it. Thank you for reporting; please report again if you see something new.", "வனத்துறை அதிகாரி உங்கள் அறிக்கையை ஆய்வு செய்து முடித்துள்ளார். தகவலுக்கு நன்றி; புதிதாக ஏதேனும் கண்டால் மீண்டும் தெரிவிக்கவும்."),
+}
+
+
+def verification_checklist(category: str, checks: dict[str, Any]) -> list[str]:
+    """Deterministic officer checklist built from the checks. It does not depend on the language model."""
+    items = ["Open the photo and confirm it shows the reported place (landmarks, terrain); the photo alone does not confirm anything."]
+    fd = checks.get("fire_detections", {})
+    if category == "fire":
+        items.append("Contact the beat/range staff nearest to the location and ask for a ground check; do not rely on the satellite check alone.")
+        if fd.get("verdict") != "DETECTION_NEARBY":
+            items.append("No satellite detection is NOT evidence of no fire. Check the latest FIRMS pass and request a field visit if smoke is still reported.")
+        else:
+            items.append("A satellite detection was recorded nearby. Compare its time and position with the report before deciding.")
+        items.append("Decide whether a community alert is needed and review the draft before anything is sent.")
+    elif category == "deforestation":
+        items += ["Check felling permits and working-plan/land records for this location.",
+                  "Confirm the location against the reserve boundary and compartment map.",
+                  "Compare with the earlier-year vegetation record (Change Over Time) and the Hansen loss layer if loaded; treat both as supporting evidence only.",
+                  "Visit the site to record what happened and who is responsible. Legality is decided only by the forest department."]
+    else:
+        items.append("Decide the category after a site visit, then update the status.")
+    if checks.get("reserve_boundary", {}).get("status") == "ok" and checks["reserve_boundary"].get("inside") is False:
+        items.append("The location is outside the loaded reserve boundary: check which authority covers it.")
+    if checks.get("other_reports_nearby", {}).get("distinct_other_reporters", 0) >= 1:
+        items.append("Other people reported nearby recently: compare their photos and times.")
+    if checks.get("community_impact", {}).get("status") == "ok" and checks["community_impact"]["settlement"]["count"]:
+        items.append("Settlements are within 5 km: confirm contact with the local leaders before and after any alert.")
+    return items
+
+
 def citizen_view(r: dict[str, Any]) -> dict[str, Any]:
-    return {"id": r["id"], "category": r["category"], "note": r["note"], "lat": r["lat"], "lon": r["lon"], "created": r["created"],
-            "status": CITIZEN_STATUS_LABEL.get(r["status"], "Received"), "photo_url": f"/api/citizen/reports/{r['id']}/photo"}
+    st = CITIZEN_STATUS_LABEL.get(r["status"], "Received")
+    return {"outcome_en": OUTCOME[st][0], "outcome_ta": OUTCOME[st][1], **{"id": r["id"], "category": r["category"], "note": r["note"], "lat": r["lat"], "lon": r["lon"], "created": r["created"],
+            "status": st, "photo_url": f"/api/citizen/reports/{r['id']}/photo"}}
 
 
 def officer_view(r: dict[str, Any], full: bool = False) -> dict[str, Any]:
@@ -303,7 +360,8 @@ def officer_view(r: dict[str, Any], full: bool = False) -> dict[str, Any]:
                     "ai": json.loads(r["ai_result"]) if r["ai_result"] else None, "ai_error": r["ai_error"], "ai_model": r["ai_model"],
                     "officer_notes": r["officer_notes"], "reviewed_by": r["reviewed_by"], "updated": r["updated"],
                     "photo_url": f"/api/field-reports/{r['id']}/photo", "legality": LEGALITY_NOTE,
-                    "label": "Citizen report, unverified until an officer reviews it"})
+                    "label": "Citizen report, unverified until an officer reviews it",
+                    "checklist": verification_checklist(r["category"], json.loads(r["checks"]))})
     return out
 
 
@@ -321,7 +379,7 @@ def ai_facts(r: dict[str, Any]) -> dict[str, Any]:
         "checks_run_by_backend": checks,
         "rule_based_priority": pr,
         "known_data_gaps": [k for k, v in checks.items() if isinstance(v, dict) and v.get("status") in ("unavailable", "not_covered", "error")],
-        "community_data": COMMUNITY_STATEMENT,
+        "community_data": (checks["community_impact"]["summary_en"] + " (OpenStreetMap, may be incomplete)") if checks.get("community_impact", {}).get("status") == "ok" else COMMUNITY_STATEMENT,
     }
 
 
@@ -343,6 +401,9 @@ def guard_citizen(res: dict[str, Any]) -> dict[str, Any]:
         "evidence_for": strs(res.get("evidence_for")), "evidence_against": strs(res.get("evidence_against")),
         "contradictions": strs(res.get("contradictions")), "unknowns": strs(res.get("unknowns")),
         "recommended_action": str(res.get("recommended_action", ""))[:600],
+        "observation_comparison": strs(res.get("observation_comparison")),
+        "possible_causes": strs(res.get("possible_causes"), 6),
+        "verification_checklist": strs(res.get("verification_checklist"), 10),
         "officer_alert": obj(res.get("officer_alert"), ("headline", "message_en", "message_ta")),
         "citizen_reply": obj(res.get("citizen_reply"), ("message_en", "message_ta")),
         "legality_note": LEGALITY_NOTE,  # forced: the model does not decide legality

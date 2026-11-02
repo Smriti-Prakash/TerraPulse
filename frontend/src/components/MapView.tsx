@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { CircleMarker, MapContainer, ScaleControl, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 
 export interface Pt { id: string; lat: number; lon: number; color: string; radius?: number; selected?: boolean; dim?: boolean; tip?: string }
@@ -23,7 +23,7 @@ function Jump({ pts }: { pts: Pt[] }) {
   return (
     <div className="absolute right-3 top-3 z-[1000] flex flex-col gap-1.5">
       {[["All", null], ["North cluster", true], ["South cluster", false]].map(([l, v]) => (
-        <button key={l as string} onClick={() => go(v as boolean | null)} className="rounded-lg border border-white/10 bg-ink-900/90 px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-wider text-stone-300 hover:text-moss-400">{l as string}</button>
+        <button key={l as string} onClick={() => go(v as boolean | null)} className="rounded-lg border border-white/10 bg-ink-900/90 px-2.5 py-1 font-mono text-[10.5px] text-stone-300 hover:text-moss-400">{l as string}</button>
       ))}
     </div>
   );
@@ -45,6 +45,7 @@ export default function MapView({ pts, onPick, height = 460, focus, zoom, jump =
             {p.tip && <Tooltip direction="top" offset={[0, -6]}>{p.tip}</Tooltip>}
           </CircleMarker>
         ))}
+        <ScaleControl position="bottomleft" />
         {jump && <Jump pts={pts} />}
       </MapContainer>
     </div>

@@ -39,4 +39,11 @@ export interface Dashboard {
   demo_records: Record<string, { incident_id: string; rule: string }>;
 }
 export interface ReportSection { n: number; title: string; kind: "data" | "ai"; body: string; note?: string; table?: { name: string; value: string; unit: string }[]; gaps?: string[] }
-export interface Report { id: number; incident_id: string; created: number; body: { title: string; generated: string; mode: string; ai_generated: boolean; ai_model: string | null; sections: ReportSection[]; confidence: string } }
+export interface SummarySection { key: string; title: string; paragraphs: string[]; bullets: string[]; numbered: string[]; note?: string | null }
+export interface AppendixItem { title: string; paragraphs?: string[]; bullets?: string[]; table?: { cols: string[]; rows: string[][] }; qa?: { title: string; body: string }[] }
+export interface ReportBody {
+  version?: number; title: string; generated: string; mode: string; ai_generated: boolean; ai_model: string | null;
+  sections: ReportSection[]; confidence: string; // reports saved before the redesign
+  headline?: string; at_a_glance?: { label: string; value: string }[]; summary?: SummarySection[]; not_say?: string; ai_items_removed?: number; appendix?: AppendixItem[];
+}
+export interface Report { id: number; incident_id: string; created: number; body: ReportBody }

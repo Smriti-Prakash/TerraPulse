@@ -29,7 +29,12 @@ CONSTRAINTS = [
     "The Random Forest model is a forest-DISTURBANCE model, not a fire classifier. Fire_Brightness is one of its eight input features.",
     "Vegetation values are a spatial comparison with other sampled points, not a temporal change, unless reference/current values are supplied (they are not).",
     "Possible causes are hypotheses, never confirmed causes.",
+    "Describe vegetation findings as 'potential vegetation disturbance'. Never say 'illegal deforestation' or decide legality; permits, records and boundaries are checked by the forest department.",
     f"If community exposure cannot be determined from the evidence, write exactly: \"{COMMUNITY_STATEMENT}\"",
+    "If comparison_with_other_incidents is supplied, compare ONLY with the incidents listed there. They are other recorded incidents, not earlier ones in time (the data has no dates), so never say 'earlier', 'previous' or 'before' in a time sense, and never claim a shared cause.",
+    "WRITING STYLE: write for a forest officer, not an analyst. Use short, plain sentences (about 25 words at most) and put the meaning first. "
+    "In 'detected', 'why_flagged', 'risk_assessment', 'recommended_action' and 'confidence' do NOT use raw column names (such as Fire_Brightness), z-scores, formulas or comparison signs; say 'the heat reading' or 'greenness is low' instead. "
+    "Exact numbers belong only in 'supporting_evidence'. Keep 'detected', each 'justification' and 'recommended_action' to at most two sentences.",
     "Return valid JSON only, no markdown fences.",
 ]
 
@@ -39,7 +44,7 @@ SCENARIOS = {
         "context": "A record from historical satellite/environmental data for {area} has been opened as a TerraPulse incident. The Random Forest disturbance model has been run on it.",
         "task": "Investigate this record: what was detected, why it was flagged, what the combined evidence does and does not support, possible causes, impacts, risk, missing evidence and the recommended next action.",
         "output": {
-            "detected": "string — what was detected (state clearly if the ML model did NOT flag disturbance)",
+            "detected": "string — one or two plain sentences on what was detected, no raw column names or z-scores (state clearly if the ML model did NOT flag disturbance)",
             "why_flagged": "string — why this record became an incident (use the supplied risk signals)",
             "supporting_evidence": "array of {observation: string, interpretation: string}",
             "possible_causes": "array of {cause: string, support: string, status: 'hypothesis'}",
@@ -49,7 +54,9 @@ SCENARIOS = {
             "community_impact": "string",
             "risk_assessment": "{level: string (must equal the supplied risk level), justification: string}",
             "missing_evidence": "array of string — missing or contradictory evidence",
-            "recommended_action": "string",
+            "verification_checklist": "array of string — concrete steps for the forest officer to verify this record on the ground and in the records (no findings)",
+            "comparison_with_other_incidents": "array of {incident_id: string (ONLY ids listed under comparison_with_other_incidents in the evidence), similarity: string, difference: string}. Empty array if no comparison data is supplied.",
+            "recommended_action": "string — at most two plain sentences",
             "confidence": "{level: 'low'|'moderate'|'high', reasoning: string}",
         },
     },
@@ -121,11 +128,13 @@ def evidence_block(incident: dict[str, Any], evidence: dict[str, Any]) -> dict[s
     }
 
 
-def build_prompt(scenario: str, incident: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
+def build_prompt(scenario: str, incident: dict[str, Any], evidence: dict[str, Any], comparison: dict[str, Any] | None = None) -> dict[str, Any]:
     if scenario not in SCENARIOS:
         raise KeyError(scenario)
     sc = SCENARIOS[scenario]
     ev = evidence_block(incident, evidence)
+    if comparison is not None and scenario == "investigate":
+        ev["comparison_with_other_incidents"] = comparison
     context = sc["context"].format(area=config.STUDY_AREA)
     system = f"ROLE:\n{ROLE}\n\nCONSTRAINTS:\n" + "\n".join(f"- {c}" for c in CONSTRAINTS)
     user = (
@@ -175,6 +184,11 @@ CITIZEN_CONSTRAINTS = [
     "PARTLY SUPPORTED = the photo is consistent with the report but no independent check supports or contradicts it. "
     "NOT SUPPORTED = the photo or the checks contradict the report (for example the photo shows nothing relevant, or its geotag is far from the reported location). "
     "INCONCLUSIVE = the photo is too unclear or there is too little evidence.",
+    "If fire_detections.verdict is INCONCLUSIVE, write that the satellite check is inconclusive and field verification is needed. NEVER write that there is 'no fire' because no detection was found.",
+    "For the category 'deforestation' use the words 'possible vegetation loss or clearing' or 'potential vegetation disturbance'. Never write 'illegal deforestation' or 'illegal logging', and never say who is responsible.",
+    "tree_cover_loss (Hansen) is retrospective, annual supporting evidence from any cause; it does not show clearing or illegality. community_impact is OpenStreetMap-based and may be incomplete.",
+    "possible_causes are hypotheses (for example: fire, burning of waste, mist or dust mistaken for smoke, seasonal dryness, tree felling, road work, storm damage). Each must name what supports it and what is missing. Do not list a cause the evidence gives no basis for.",
+    "verification_checklist is a list of concrete steps for the forest officer (what to check on site, which records to look at). It must not state any finding.",
     "A check marked unavailable, not_covered or error is MISSING DATA. Missing data is NOT evidence against the report. Say it is unavailable.",
     "Missing photo metadata (EXIF) is common and is not evidence against the report.",
     "Satellite and TerraPulse observations are historical and coarse; they can miss small or short events. Say so when relevant.",
@@ -194,6 +208,9 @@ CITIZEN_OUTPUT = {
     "evidence_against": "array of string",
     "contradictions": "array of string — conflicts between photo, note, location and checks",
     "unknowns": "array of string — missing or unavailable information",
+    "observation_comparison": "array of string — compare the photo, the citizen's note, the reported location, nearby TerraPulse observations and the satellite checks: where they agree, where they differ",
+    "possible_causes": "array of string — each: 'cause — supported by ... / missing ...' (hypotheses only)",
+    "verification_checklist": "array of string — concrete steps for the officer on site and in the records",
     "recommended_action": "string — a suggested next step for the officer (the officer decides)",
     "officer_alert": "{headline: string, message_en: string, message_ta: string}",
     "citizen_reply": "{message_en: string, message_ta: string}",

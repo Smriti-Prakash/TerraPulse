@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import time
 from contextlib import asynccontextmanager
@@ -10,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
 
-from . import auth, citizen, config, db, prompts
+from . import auth, citizen, community, compare, config, db, insights, layers, prompts, report as report_mod, timeseries
 from .core import COMMUNITY_STATEMENT, DATA_GAPS, FEATURES, FEATURE_META, RISK_RULE, UNAVAILABLE, DataError, engine
 from .gemini import GeminiError, generate, parse_json
 
@@ -20,6 +21,7 @@ async def lifespan(_: FastAPI):
     db.init()
     auth.init()
     citizen.init()
+    community.init()
     engine.load()
     yield
 
@@ -28,6 +30,11 @@ app = FastAPI(title="TerraPulse API", version="1.0", lifespan=lifespan, dependen
 app.include_router(auth.router)
 app.include_router(citizen.router)
 app.include_router(citizen.officer)
+app.include_router(community.router)
+app.include_router(community.citizen_router)
+app.include_router(insights.router)
+app.include_router(compare.router)
+app.include_router(timeseries.router)
 app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 
@@ -222,11 +229,11 @@ class InvestigateIn(BaseModel):
 @app.get("/api/incidents/{iid}/prompt")
 def get_prompt(iid: str, scenario: Literal["investigate", "fire", "community"] = Query("investigate")):
     rec = incident_or_404(iid)
-    p = prompts.build_prompt(scenario, view(rec), engine.evidence(rec))
+    p = prompts.build_prompt(scenario, view(rec), engine.evidence(rec), compare.ai_context(compare.compare_incident(rec)))
     return p
 
 
-def _guard(result: dict[str, Any], rec: dict[str, Any]) -> dict[str, Any]:
+def _guard(result: dict[str, Any], rec: dict[str, Any], allowed: set[str] | None = None) -> dict[str, Any]:
     """Server-side guardrails on the model output."""
     fa = result.get("fire_assessment")
     if isinstance(fa, dict):
@@ -236,6 +243,18 @@ def _guard(result: dict[str, Any], rec: dict[str, Any]) -> dict[str, Any]:
         ra["model_stated_level"] = ra.get("level")
         ra["level"] = rec["risk"]["level"]
         ra["note"] = "Level replaced with the rule-based level; the language model's stated level differed."
+    vc = result.get("verification_checklist")
+    if "verification_checklist" in result:
+        result["verification_checklist"] = [str(x)[:400] for x in vc][:10] if isinstance(vc, list) else []
+    if "comparison_with_other_incidents" in result:
+        cmp_ = result["comparison_with_other_incidents"]
+        ok = [x for x in cmp_ if isinstance(x, dict) and str(x.get("incident_id")) in (allowed or set())] if isinstance(cmp_, list) else []
+        if isinstance(cmp_, list) and len(ok) < len(cmp_):
+            result.setdefault("guard_flags", []).append("Comparison entries that named incidents outside the supplied list were removed.")
+        result["comparison_with_other_incidents"] = ok[:8]
+    hit = sorted({m.group(0).lower() for m in citizen.FLAG_WORDS.finditer(json.dumps(result, ensure_ascii=False))})
+    if hit:
+        result.setdefault("guard_flags", []).append("AI wording used terms about legality or confirmation (" + ", ".join(hit) + "). Treat these as unverified; the system does not determine either.")
     return result
 
 
@@ -244,10 +263,11 @@ def investigate(iid: str, body: InvestigateIn | None = None):
     rec = incident_or_404(iid)
     scenario = (body or InvestigateIn()).scenario
     v, ev = view(rec), engine.evidence(rec)
-    p = prompts.build_prompt(scenario, v, ev)
+    cmp_ = compare.compare_incident(rec)
+    p = prompts.build_prompt(scenario, v, ev, compare.ai_context(cmp_))
     try:
         text = generate(p["system"], [{"role": "user", "parts": [{"text": p["user"]}]}], json_mode=True)
-        result = _guard(parse_json(text), rec)
+        result = _guard(parse_json(text), rec, compare.allowed_ids(cmp_))
     except GeminiError as e:
         raise HTTPException(e.status, str(e))
     if db.get_status(iid) == "NEW":
@@ -276,42 +296,8 @@ def chat(iid: str, body: ChatIn):
 
 
 # ----------------------------------------------------------------- reports
-AI_PENDING = "AI investigation not yet generated for this incident."
-
-
 def build_report(rec: dict[str, Any]) -> dict[str, Any]:
-    v, ev = view(rec), engine.evidence(rec)
-    invs = db.latest_investigations(rec["incident_id"])
-    a = invs.get("investigate", {}).get("result")
-    fire = invs.get("fire", {}).get("result")
-    com = invs.get("community", {}).get("result")
-    g = (lambda d, *ks: _dig(d, ks)) if a else (lambda d, *ks: AI_PENDING)
-    f = rec["features"]
-    return {
-        "title": f"TerraPulse Investigation Report — {v['id']}",
-        "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "mode": "HISTORICAL DATA DEMONSTRATION — not a live feed",
-        "ai_generated": a is not None, "ai_model": invs.get("investigate", {}).get("model"),
-        "sections": [
-            {"n": 1, "title": "Incident overview", "kind": "data", "body": f"{v['id']} — {v['title']}. Status: {v['status']}. Risk: {v['risk']['level']}. ML assessment: {v['ml_assessment']}."},
-            {"n": 2, "title": "Location", "kind": "data", "body": f"{config.STUDY_AREA}. Latitude {rec['lat']:.6f}, longitude {rec['lon']:.6f} ({rec['cluster']}). Source: CSV row {rec['csv_row_number']} (system:index {rec['system_index']})."},
-            {"n": 3, "title": "Detection evidence", "kind": "data", "table": [{"name": FEATURE_META[k]["label"], "value": f"{f[k]:g}", "unit": FEATURE_META[k]["unit"]} for k in FEATURES],
-             "body": "Values exactly as supplied in the CSV. Units are inferred (not stored in the file) except where noted."},
-            {"n": 4, "title": "ML assessment", "kind": "data", "body": f"Random Forest (TerraPulse_RF_200, 200 trees): disturbance probability {rec['ml']['probability']:.3f}, threshold {config.ML_THRESHOLD}, disturbance detected: {'yes' if rec['ml']['disturbance_detected'] else 'no'}. CSV-supplied probability {rec['csv_disturbance_probability']:.3f} (unverified pipeline; does not match the model output)."},
-            {"n": 5, "title": "Vegetation assessment", "kind": "ai", "body": _text(g(a, "vegetation_assessment"), AI_PENDING),
-             "note": "Reference/current/change values: " + UNAVAILABLE + ". NDVI/NBR comparison is spatial, not temporal."},
-            {"n": 6, "title": "Fire-related assessment", "kind": "ai", "body": _text((fire or {}).get("fire_assessment") or g(a, "fire_assessment"), AI_PENDING),
-             "note": ev["fire"]["label"] + ". Not confirmed."},
-            {"n": 7, "title": "Possible causes (hypotheses)", "kind": "ai", "body": _text(g(a, "possible_causes"), AI_PENDING)},
-            {"n": 8, "title": "Environmental impact", "kind": "ai", "body": _text(g(a, "environmental_impact"), AI_PENDING)},
-            {"n": 9, "title": "Community impact", "kind": "ai", "body": _text((com or {}).get("community_impact") or g(a, "community_impact"), AI_PENDING), "note": COMMUNITY_STATEMENT},
-            {"n": 10, "title": "Risk level", "kind": "data", "body": f"{v['risk']['level']} (score {v['risk']['score']}/4). " + " ".join(v["risk"]["reasons"] + v["risk"]["not_triggered"]) + " Rule: " + RISK_RULE["summary"]},
-            {"n": 11, "title": "Missing evidence", "kind": "ai", "body": _text(g(a, "missing_evidence"), AI_PENDING), "gaps": DATA_GAPS},
-            {"n": 12, "title": "Recommended action", "kind": "ai", "body": _text(g(a, "recommended_action"), AI_PENDING)},
-            {"n": 13, "title": "Data / evidence used", "kind": "data", "body": "TerraPulse_Forest_Disturbance_Evidence.csv (historical); TerraPulse_RF_200.joblib (Random Forest); Google Gemini (" + (invs.get("investigate", {}).get("model") or "not yet run") + ") for the narrative sections, grounded on the evidence above."},
-        ],
-        "confidence": _text(g(a, "confidence"), AI_PENDING),
-    }
+    return report_mod.build(rec, view(rec), engine.evidence(rec))
 
 
 def _dig(d: dict | None, keys: tuple) -> Any:
@@ -334,15 +320,16 @@ def _text(v: Any, default: str) -> str:
 
 
 def report_markdown(rep: dict[str, Any]) -> str:
-    lines = [f"# {rep['title']}", f"*{rep['mode']}* · generated {rep['generated']}", ""]
+    if rep.get("version") == 2:
+        return report_mod.markdown(rep)
+    lines = [f"# {rep['title']}", f"*{rep['mode']}* · generated {rep['generated']}", ""]  # reports saved before the redesign
     for s in rep["sections"]:
         lines += [f"## {s['n']}. {s['title']}", s["body"], ""]
         if s.get("table"):
             lines += ["| Feature | Value | Unit |", "|---|---|---|"] + [f"| {r['name']} | {r['value']} | {r['unit']} |" for r in s["table"]] + [""]
         if s.get("note"):
             lines += [f"> {s['note']}", ""]
-    lines += ["## Confidence / uncertainty", rep["confidence"], ""]
-    return "\n".join(lines)
+    return "\n".join(lines + ["## Confidence / uncertainty", rep["confidence"], ""])
 
 
 @app.post("/api/incidents/{iid}/report")

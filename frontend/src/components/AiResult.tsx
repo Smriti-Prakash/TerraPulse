@@ -1,72 +1,114 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
+import { Section } from "./ui";
 
-const ORDER: [string, string, string][] = [
-  ["detected", "A", "What was detected"],
-  ["why_flagged", "B", "Why it was flagged"],
-  ["supporting_evidence", "C", "Supporting evidence"],
-  ["possible_causes", "D", "Possible causes"],
-  ["fire_assessment", "E", "Fire-related assessment"],
-  ["evidence_for", "E+", "Evidence for a fire-related disturbance"],
-  ["evidence_against", "E−", "Evidence against"],
-  ["vegetation_assessment", "F", "Vegetation-change assessment"],
-  ["environmental_impact", "G", "Environmental impact"],
-  ["community_impact", "H", "Potential community impact"],
-  ["determinable", "H1", "Exposure determinable from supplied data?"],
-  ["data_required", "H2", "Data required"],
-  ["risk_assessment", "I", "Risk assessment"],
-  ["missing_evidence", "J", "Missing / contradictory evidence"],
-  ["recommended_action", "K", "Recommended next action"],
-  ["confidence", "L", "Confidence & uncertainty"],
+const LABEL: Record<string, string> = {
+  detected: "What was detected", why_flagged: "Why it was flagged", supporting_evidence: "Supporting evidence", possible_causes: "Possible causes (hypotheses only)",
+  fire_assessment: "Fire-related assessment", evidence_for: "Evidence for a fire-related disturbance", evidence_against: "Evidence against",
+  vegetation_assessment: "Vegetation-change assessment", environmental_impact: "Environmental impact", community_impact: "Potential community impact",
+  determinable: "Can exposure be worked out from the supplied data?", data_required: "Data that would be needed", risk_assessment: "Risk assessment",
+  missing_evidence: "Missing or contradictory evidence", verification_checklist: "Officer verification checklist", recommended_action: "Recommended next action", comparison_with_other_incidents: "Comparison with other recorded incidents", confidence: "Confidence and uncertainty",
+};
+const GROUPS: { title: string; keys: string[]; open: boolean }[] = [
+  { title: "Why it was flagged", keys: ["why_flagged"], open: true },
+  { title: "Exact values behind it", keys: ["supporting_evidence"], open: false },
+  { title: "Fire-related assessment", keys: ["fire_assessment", "evidence_for", "evidence_against"], open: true },
+  { title: "Gaps and what to check next", keys: ["missing_evidence", "verification_checklist"], open: true },
+  { title: "Comparison with other incidents", keys: ["comparison_with_other_incidents"], open: false },
+  { title: "Possible causes and vegetation", keys: ["possible_causes", "vegetation_assessment"], open: false },
+  { title: "Impact on environment and community", keys: ["environmental_impact", "community_impact", "determinable", "data_required"], open: false },
 ];
-
+const HEADLINE = ["detected", "risk_assessment", "recommended_action", "confidence"];
 const pretty = (k: string) => k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+const isObj = (x: any) => x && typeof x === "object" && !Array.isArray(x);
 
-function Val({ v }: { v: any }): ReactNode {
-  if (v === null || v === undefined || v === "") return <span className="text-stone-500">—</span>;
-  if (typeof v === "boolean") return <span>{v ? "Yes" : "No"}</span>;
-  if (typeof v === "string" || typeof v === "number") return <p className="leading-relaxed text-stone-200">{String(v)}</p>;
-  if (Array.isArray(v)) return (
-    <ul className="space-y-2">
-      {v.map((x, i) => (
-        <li key={i} className="flex gap-2.5">
-          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-moss-500" />
-          <div className="min-w-0 flex-1">{typeof x === "object" && x ? <Obj o={x} /> : <span className="leading-relaxed">{String(x)}</span>}</div>
-        </li>
-      ))}
-    </ul>
-  );
-  return <Obj o={v} />;
-}
-function Obj({ o }: { o: Record<string, any> }) {
+function Table({ rows }: { rows: Record<string, any>[] }) {
+  const cols = Object.keys(rows[0]);
   return (
-    <div className="space-y-1">
-      {Object.entries(o).map(([k, x]) => (
-        <div key={k} className="text-sm leading-relaxed">
-          <span className="font-mono text-[10.5px] uppercase tracking-wider text-moss-400">{pretty(k)} </span>
-          {typeof x === "object" && x ? <div className="mt-1 pl-3"><Val v={x} /></div> : <span className="text-stone-200">{typeof x === "boolean" ? (x ? "Yes" : "No") : String(x)}</span>}
-        </div>
-      ))}
+    <div className="overflow-x-auto rounded-lg border border-white/[0.07]">
+      <table className="w-full min-w-[420px] text-sm">
+        <thead><tr className="bg-white/[0.04] text-left text-xs text-stone-400">{cols.map((c) => <th key={c} className="px-3 py-2 font-medium">{pretty(c)}</th>)}</tr></thead>
+        <tbody>{rows.map((r, i) => <tr key={i} className="border-t border-white/[0.06] align-top">{cols.map((c, j) => <td key={c} className={`px-3 py-2 ${j === 0 ? "font-medium text-stone-100" : "text-stone-300"}`}>{String(r[c] ?? "")}</td>)}</tr>)}</tbody>
+      </table>
     </div>
   );
 }
 
-export default function AiResult({ result }: { result: Record<string, any> }) {
-  const known = ORDER.filter(([k]) => k in result);
-  const extra = Object.keys(result).filter((k) => !ORDER.some(([o]) => o === k));
+function Val({ v, check }: { v: any; check?: boolean }): ReactNode {
+  if (v === null || v === undefined || v === "") return <span className="text-stone-500">Nothing listed</span>;
+  if (typeof v === "boolean") return <span>{v ? "Yes" : "No"}</span>;
+  if (typeof v === "string" || typeof v === "number") return <p className="leading-relaxed text-stone-200">{String(v)}</p>;
+  if (Array.isArray(v)) {
+    if (!v.length) return <span className="text-stone-500">Nothing listed</span>;
+    if (v.every(isObj) && Object.keys(v[0]).length >= 2 && v.every((x) => Object.keys(x).length === Object.keys(v[0]).length)) return <Table rows={v} />;
+    return (
+      <ul className="space-y-1.5">
+        {v.map((x, i) => (
+          <li key={i} className="flex gap-2.5">
+            {check ? <span className="mt-1 h-3.5 w-3.5 flex-none rounded border border-white/30" /> : <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-moss-500" />}
+            <div className="min-w-0 flex-1 leading-relaxed text-stone-200">{isObj(x) ? <Obj o={x} /> : String(x)}</div>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return <Obj o={v} />;
+}
+function Obj({ o }: { o: Record<string, any> }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {known.map(([k, tag, title], i) => (
-        <div key={k} className={`fade-in rounded-xl border border-white/[0.07] bg-ink-900/60 p-4 ${["why_flagged"].includes(k) ? "" : ""} ${(k === "supporting_evidence" || k === "possible_causes" || k === "detected") ? "md:col-span-2" : ""}`} style={{ animationDelay: `${i * 50}ms` }}>
-          <div className="mb-2 flex items-center gap-2">
-            <span className="grid h-5 min-w-5 place-items-center rounded bg-moss-500/15 px-1 font-mono text-[10px] text-moss-400">{tag}</span>
-            <span className="label !text-stone-300">{title}</span>
+    <dl className="space-y-1">
+      {Object.entries(o).map(([k, x]) => (
+        <div key={k} className="text-sm leading-relaxed"><dt className="inline text-stone-400">{pretty(k)}: </dt><dd className="inline text-stone-200">{isObj(x) || Array.isArray(x) ? <div className="mt-1 pl-3"><Val v={x} /></div> : typeof x === "boolean" ? (x ? "Yes" : "No") : String(x)}</dd></div>
+      ))}
+    </dl>
+  );
+}
+
+// The officer needs the top few gaps. The rest, and notes about the evidence file's own probability column (already shown beside the evidence values), stay behind "Show all".
+const TECHNICAL = /pipeline probability|Disturbance_Probability|csv.*probabilit|contradiction between the random forest/i;
+function Gaps({ items }: { items: string[] }) {
+  const [all, setAll] = useState(false);
+  const main = items.filter((x) => !TECHNICAL.test(String(x))), shown = all ? main : main.slice(0, 3);
+  return (
+    <div>
+      <Val v={shown} />
+      {main.length > 3 && <button type="button" onClick={() => setAll((a) => !a)} className="mt-2 text-sm text-moss-400 underline-offset-2 hover:underline">{all ? "Show fewer" : `Show all ${main.length}`}</button>}
+    </div>
+  );
+}
+
+const Block = ({ k, v, hideLabel }: { k: string; v: any; hideLabel?: boolean }) => (
+  <div className="min-w-0">{!hideLabel && <div className="mb-1.5 text-xs font-medium text-stone-400">{LABEL[k] ?? pretty(k)}</div>}{k === "missing_evidence" && Array.isArray(v) && v.every((x) => typeof x === "string") ? <Gaps items={v} /> : <Val v={v} check={k === "verification_checklist"} />}</div>
+);
+
+/** The AI investigation, laid out for quick reading: headline first, then grouped detail the officer can open. */
+export default function AiResult({ result }: { result: Record<string, any> }) {
+  const used = new Set<string>(HEADLINE);
+  const head = HEADLINE.filter((k) => k in result);
+  const groups = GROUPS.map((g) => ({ ...g, present: g.keys.filter((k) => k in result) })).filter((g) => g.present.length);
+  groups.forEach((g) => g.present.forEach((k) => used.add(k)));
+  const extra = Object.keys(result).filter((k) => !used.has(k));
+  return (
+    <div className="space-y-4">
+      {head.length > 0 && (
+        <div className="space-y-4 rounded-xl border border-white/10 bg-ink-900/60 p-5">
+          {"detected" in result && <div><div className="mb-1 text-xs font-medium text-stone-400">{LABEL.detected}</div><p className="text-base font-medium leading-relaxed text-stone-50">{String(result.detected)}</p></div>}
+          {"recommended_action" in result && (
+            <div className="min-w-0 rounded-lg border border-moss-500/30 bg-moss-500/[0.07] p-4"><div className="mb-1 text-xs font-medium text-moss-400">{LABEL.recommended_action}</div><div className="text-[15px] leading-relaxed"><Val v={result.recommended_action} /></div></div>
+          )}
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 text-[15px] md:grid-cols-2">
+            {"risk_assessment" in result && <Block k="risk_assessment" v={result.risk_assessment} />}
+            {"confidence" in result && <Block k="confidence" v={result.confidence} />}
           </div>
-          <Val v={result[k]} />
         </div>
+      )}
+      {groups.map((g) => (
+        <Section key={g.title} title={g.title} defaultOpen={g.open}>
+          <div className={`grid grid-cols-[minmax(0,1fr)] gap-5 ${g.present.includes("evidence_for") ? "md:grid-cols-2" : ""}`}>
+            {g.present.map((k) => <div key={k} className={`min-w-0 ${["fire_assessment", "supporting_evidence", "why_flagged"].includes(k) ? "md:col-span-2" : ""}`}><Block k={k} v={result[k]} hideLabel={LABEL[k] === g.title} /></div>)}
+          </div>
+        </Section>
       ))}
-      {extra.map((k) => (
-        <div key={k} className="rounded-xl border border-white/[0.07] bg-ink-900/60 p-4"><div className="label mb-2">{pretty(k)}</div><Val v={result[k]} /></div>
-      ))}
+      {extra.length > 0 && <Section title="Other details"><div className="space-y-4">{extra.map((k) => <Block key={k} k={k} v={result[k]} />)}</div></Section>}
     </div>
   );
 }
